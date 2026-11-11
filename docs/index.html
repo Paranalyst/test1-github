@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>บัญชีค้าง (ตัวอย่าง)</title>
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--ink:#1f2328;--muted:#656d76;--line:#e4e4e0;--warn:#b7791f;--warnbg:#fdf3dc;--crit:#c0392b;--critbg:#fbe4e1;--over:#7b1fa2;--overbg:#f3e5f5;--ok:#2e7d32;--accent:#2f5d8a}
+@media (prefers-color-scheme:dark){:root{--bg:#16181b;--card:#1f2226;--ink:#e6e6e3;--muted:#9aa1a9;--line:#33373c;--warnbg:#3a2f16;--critbg:#3d1f1c;--overbg:#33203a;--warn:#e0a84a;--crit:#f07a6c;--over:#ce93d8;--ok:#7cc47f;--accent:#8ab4e0}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI","Noto Sans Thai",sans-serif}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:22px;margin:0 0 4px}.muted{color:var(--muted)}.banner{background:var(--warnbg);border:1px solid var(--line);padding:8px 12px;border-radius:8px;margin:12px 0;font-size:14px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.card b{display:block;font-size:22px}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:14px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{font-size:12px;color:var(--muted);font-weight:600}
+th.n,td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}tr.acct{cursor:pointer}tr.acct:hover{background:var(--bg)}tr.sel{outline:2px solid var(--accent)}
+.wrap{overflow-x:auto;margin:10px 0 22px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600}
+.warn{background:var(--warnbg);color:var(--warn)}.crit{background:var(--critbg);color:var(--crit)}.over{background:var(--overbg);color:var(--over)}.okp{color:var(--ok)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}select,input,button{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+button{cursor:pointer}h2{font-size:17px;margin:20px 0 6px}
+</style>
+</head>
+<body>
+<main>
+  <h1>🔔 บัญชีค้าง</h1>
+  <div class="muted" id="asof">กำลังโหลด…</div>
+  <div class="banner" id="sample" hidden>⚠️ ข้อมูลตัวอย่างที่แต่งขึ้นสำหรับฝึก — ไม่ใช่ข้อมูลจริงของบริษัทใด</div>
+  <div class="cards" id="cards"></div>
+
+  <h2>สรุปรายบัญชี <span class="muted" style="font-size:13px;font-weight:400">— คลิกแถวเพื่อกรองรายการด้านล่าง</span></h2>
+  <div class="wrap"><table id="acctTbl"><thead><tr>
+    <th>บัญชี</th><th class="n">ยอดค้าง</th><th class="n">0–30</th><th class="n">31–90</th><th class="n">91–180</th><th class="n">181+</th>
+    <th>เตือน</th><th>ต้องทำ</th><th>tie GL</th></tr></thead><tbody></tbody></table></div>
+
+  <h2>รายการค้าง</h2>
+  <div class="bar">
+    <select id="fAcct"><option value="">ทุกบัญชี</option></select>
+    <select id="fLevel"><option value="alert">เฉพาะที่ต้องเตือน</option><option value="">ทั้งหมด</option></select>
+    <input id="fText" placeholder="ค้นหา voucher / คำอธิบาย">
+    <button id="csv">⬇ CSV</button>
+    <span class="muted" id="count"></span>
+  </div>
+  <div class="wrap"><table id="itemTbl"><thead><tr>
+    <th>ระดับ</th><th>บัญชี</th><th>voucher</th><th>วันที่</th><th class="n">ค้าง (วัน)</th><th class="n">ยอดค้าง</th><th>คำอธิบาย</th></tr></thead><tbody></tbody></table></div>
+</main>
+<script>
+const LV = {over:["⛔ เกินเพดาน","over"], crit:["🔴 วิกฤต","crit"], warn:["⚠️ เตือน","warn"], ok:["ปกติ","okp"]};
+const fmt = n => n.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let D, shown = [];
+fetch("data/openitems.json",{cache:"no-cache"}).then(r => r.json()).then(d => { D = d; render(); })
+  .catch(e => { document.getElementById("asof").textContent = "โหลดข้อมูลไม่สำเร็จ: " + e; });
+
+function render(){
+  document.getElementById("asof").textContent = `ข้อมูล ณ ${D.asOf} · สร้างเมื่อ ${D.generated}`;
+  document.getElementById("sample").hidden = !D.sample;
+  const cnt = k => D.items.filter(i => i.level === k).length;
+  const amt = k => D.items.filter(i => i.level === k).reduce((s,i) => s + i.open, 0);
+  document.getElementById("cards").innerHTML =
+    [["⛔ เกินเพดาน","over"],["🔴 วิกฤต","crit"],["⚠️ เตือน","warn"]].map(([t,k]) =>
+      `<div class="card"><span class="pill ${k}">${t}</span><b>${cnt(k)} รายการ</b><span class="muted">฿${fmt(amt(k))}</span></div>`).join("") +
+    `<div class="card"><span class="muted">บัญชีที่ติดตาม</span><b>${D.accounts.length}</b><span class="muted">tie GL ${D.accounts.every(a=>a.tie)?"✅ ครบ":"❌ มีบัญชีไม่ตรง"}</span></div>`;
+  const tb = document.querySelector("#acctTbl tbody");
+  tb.innerHTML = D.accounts.map(a => `<tr class="acct" data-acct="${a.acct}">
+    <td><b>${a.acct}</b> ${esc(a.name)}<div class="muted" style="font-size:12px">${esc(a.why)} · เตือน ${a.warnDays} / วิกฤต ${a.critDays}${a.hardLimitDays?` / เพดาน ${a.hardLimitDays}`:""} วัน</div></td>
+    <td class="n"><b>${fmt(a.openTotal)}</b></td>${["0-30","31-90","91-180","181+"].map(b=>`<td class="n">${a.buckets[b]?fmt(a.buckets[b]):"–"}</td>`).join("")}
+    <td>${a.nOver?`<span class="pill over">⛔ ${a.nOver}</span> `:""}${a.nCrit?`<span class="pill crit">🔴 ${a.nCrit}</span> `:""}${a.nWarn?`<span class="pill warn">⚠️ ${a.nWarn}</span>`:""}${!(a.nOver+a.nCrit+a.nWarn)?'<span class="okp">✓</span>':""}</td>
+    <td>${esc(a.action)}</td><td>${a.tie?"✅":"❌"}</td></tr>`).join("");
+  const sel = document.getElementById("fAcct");
+  sel.innerHTML = '<option value="">ทุกบัญชี</option>' + D.accounts.map(a => `<option value="${a.acct}">${a.acct} ${esc(a.name)}</option>`).join("");
+  tb.querySelectorAll("tr.acct").forEach(tr => tr.onclick = () => { sel.value = sel.value === tr.dataset.acct ? "" : tr.dataset.acct; items(); });
+  ["fAcct","fLevel","fText"].forEach(id => document.getElementById(id).oninput = items);
+  items();
+}
+function items(){
+  const acct = fAcct.value, lv = fLevel.value, q = fText.value.trim().toLowerCase();
+  document.querySelectorAll("tr.acct").forEach(tr => tr.classList.toggle("sel", tr.dataset.acct === acct));
+  shown = D.items.filter(i => (!acct || i.acct === acct) && (lv !== "alert" || i.level !== "ok") &&
+    (!q || (i.voucher + " " + i.desc).toLowerCase().includes(q)));
+  document.querySelector("#itemTbl tbody").innerHTML = shown.map(i => `<tr>
+    <td><span class="pill ${LV[i.level][1]}">${LV[i.level][0]}</span></td><td>${i.acct}</td><td><code>${esc(i.voucher)}</code></td>
+    <td>${i.date}</td><td class="n">${i.ageDays}</td><td class="n">${fmt(i.open)}</td><td>${esc(i.desc)}</td></tr>`).join("") ||
+    '<tr><td colspan="7" class="muted">ไม่มีรายการ</td></tr>';
+  document.getElementById("count").textContent = `${shown.length} รายการ · ฿${fmt(shown.reduce((s,i)=>s+i.open,0))}`;
+}
+document.getElementById("csv").onclick = () => {
+  const head = ["level","acct","voucher","date","ageDays","open","desc"];
+  const csv = "﻿" + [head.join(",")].concat(shown.map(i => head.map(k => `"${String(i[k]).replace(/"/g,'""')}"`).join(","))).join("\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download = `open-items-${D.asOf}.csv`; a.click();
+};
+</script>
+</body>
+</html>
